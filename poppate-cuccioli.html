@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Poppate cuccioli</title>
+<style>
+  :root {
+    --bg: #EEECE2;
+    --card: #FFFFFF;
+    --ink: #2B2722;
+    --ink-soft: #6B6459;
+    --line: #E7E1D6;
+    --lilla: #9B7FB5;
+    --verde: #4C9A6B;
+    --rosa: #D98AAE;
+    --rosso: #C1493D;
+    --fulvia: #2B2722;
+    --blu: #3E7CB1;
+    --settimino: #7A7468;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 16px;
+    padding-bottom: calc(200px + env(safe-area-inset-bottom));
+    -webkit-tap-highlight-color: transparent;
+  }
+  .wrap { max-width: 480px; margin: 0 auto; }
+  h1 {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 4px 0 2px;
+    letter-spacing: -0.02em;
+  }
+  .session-meta {
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin-bottom: 16px;
+    min-height: 18px;
+  }
+  .btn {
+    border: none;
+    border-radius: 12px;
+    padding: 14px 18px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    width: 100%;
+    transition: transform 0.05s ease, opacity 0.15s ease;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary { background: var(--ink); color: #fff; }
+  .btn-reset { background: transparent; color: var(--ink-soft); border: 1px solid var(--line); margin-bottom: 16px; }
+  .btn-reset-confirm { background: var(--rosso); color: #fff; margin-bottom: 16px; }
+  .btn-finish { background: var(--rosso); color: #fff; margin-top: 18px; }
+  .btn-finish:disabled, .btn-primary:disabled { opacity: 0.4; cursor: default; }
+  .puppy {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: opacity 0.15s ease;
+  }
+  .puppy.is-paused-row {
+    background: rgba(43, 39, 34, 0.12);
+  }
+  .dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .puppy-info { flex: 1; min-width: 0; }
+  .puppy-name { font-weight: 600; font-size: 15px; }
+  .puppy-time {
+    font-family: "SF Mono", "Menlo", monospace;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin-top: 2px;
+  }
+  .puppy-time.running { color: var(--verde); }
+  .puppy.is-paused-row .puppy-name { color: #F2F0E8; }
+  .puppy-time.paused { color: #F2F0E8; }
+  .toggle-btn {
+    border: none;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+    min-width: 84px;
+  }
+  .toggle-btn.is-running { background: #FCEDEA; color: var(--rosso); }
+  .toggle-btn.is-paused { background: #E8F3EC; color: var(--verde); }
+  .puppy-list { display: block; }
+  .summary {
+    margin-top: 18px;
+    display: block;
+  }
+  .summary textarea {
+    width: 100%;
+    min-height: 220px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px;
+    font-family: "SF Mono", "Menlo", monospace;
+    font-size: 13px;
+    background: var(--card);
+    color: var(--ink);
+    resize: vertical;
+  }
+  .copy-btn {
+    background: var(--verde);
+    color: #fff;
+    margin-top: 10px;
+  }
+  .copy-btn.copied { background: var(--ink-soft); }
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <h1>🐶 Poppate</h1>
+  <div class="session-meta" id="session-meta">Nessuna sessione in corso</div>
+
+  <div id="start-section">
+    <button class="btn btn-primary" id="action-btn">Inizia sessione</button>
+  </div>
+
+  <div class="puppy-list" id="puppy-list"></div>
+
+  <button class="btn btn-finish" id="finish-btn" style="display:none;">Finisci sessione</button>
+
+  <div class="summary" id="summary">
+    <textarea id="summary-text" readonly></textarea>
+    <button class="btn copy-btn" id="copy-btn">Copia markdown</button>
+  </div>
+</div>
+
+<script>
+const PUPPIES = [
+  { name: "Lilla", color: "var(--lilla)" },
+  { name: "Verde", color: "var(--verde)" },
+  { name: "Rosa", color: "var(--rosa)" },
+  { name: "Rosso", color: "var(--rosso)" },
+  { name: "Fulvia", color: "var(--fulvia)" },
+  { name: "Blu", color: "var(--blu)" },
+  { name: "Settimino", color: "var(--settimino)" },
+];
+
+let state = {
+  sessionStarted: false,
+  sessionEnded: false,
+  sessionStart: null,
+  sessionEnd: null,
+  puppies: {},
+};
+
+PUPPIES.forEach(p => {
+  state.puppies[p.name] = { totalMs: 0, running: false, resumedAt: null };
+});
+
+const app = document.getElementById('app');
+const actionBtn = document.getElementById('action-btn');
+const finishBtn = document.getElementById('finish-btn');
+const puppyListEl = document.getElementById('puppy-list');
+const sessionMetaEl = document.getElementById('session-meta');
+const summaryEl = document.getElementById('summary');
+const summaryTextEl = document.getElementById('summary-text');
+const copyBtn = document.getElementById('copy-btn');
+
+function fmtTime(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+function fmtDateTime(d) {
+  if (!d) return '—';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+}
+
+function elapsedFor(name) {
+  const p = state.puppies[name];
+  let ms = p.totalMs;
+  if (p.running && p.resumedAt) ms += Date.now() - p.resumedAt;
+  return ms;
+}
+
+function renderPuppyList() {
+  puppyListEl.innerHTML = '';
+  PUPPIES.forEach(({ name, color }) => {
+    const p = state.puppies[name];
+    const row = document.createElement('div');
+    row.className = 'puppy' + (p.running ? '' : ' is-paused-row');
+    row.innerHTML = `
+      <div class="dot" style="background:${color}"></div>
+      <div class="puppy-info">
+        <div class="puppy-name">${name}</div>
+        <div class="puppy-time ${p.running ? 'running' : 'paused'}" id="time-${name}">${fmtTime(elapsedFor(name))}</div>
+      </div>
+      <button class="toggle-btn ${p.running ? 'is-running' : 'is-paused'}" data-name="${name}">
+        ${p.running ? 'Pausa' : 'Riprendi'}
+      </button>
+    `;
+    puppyListEl.appendChild(row);
+  });
+  puppyListEl.querySelectorAll('.toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => togglePuppy(btn.dataset.name));
+  });
+}
+
+function updateTimes() {
+  PUPPIES.forEach(({ name }) => {
+    const el = document.getElementById('time-' + name);
+    if (el) el.textContent = fmtTime(elapsedFor(name));
+  });
+  summaryTextEl.value = buildMarkdown();
+}
+
+function buildMarkdown() {
+  let md = `## Sessione poppata\n\n`;
+  md += `**Inizio:** ${fmtDateTime(state.sessionStart)}\n`;
+  md += `**Fine:** ${state.sessionStarted && !state.sessionEnded ? 'In corso' : fmtDateTime(state.sessionEnd)}\n\n`;
+  PUPPIES.forEach(({ name }) => {
+    md += `- **${name}:** ${fmtTime(elapsedFor(name))}\n`;
+  });
+  return md;
+}
+
+function togglePuppy(name) {
+  const p = state.puppies[name];
+  if (p.running) {
+    p.totalMs += Date.now() - p.resumedAt;
+    p.running = false;
+    p.resumedAt = null;
+  } else {
+    p.running = true;
+    p.resumedAt = Date.now();
+    if (!state.sessionStarted) {
+      state.sessionStarted = true;
+      state.sessionStart = new Date();
+      finishBtn.style.display = 'block';
+    }
+    if (state.sessionEnded) {
+      state.sessionEnded = false;
+      state.sessionEnd = null;
+      finishBtn.style.display = 'block';
+    }
+  }
+  renderPuppyList();
+  updateSessionMeta();
+  updateActionButton();
+  summaryTextEl.value = buildMarkdown();
+  saveState();
+}
+
+function updateActionButton() {
+  if (state.sessionStarted) {
+    actionBtn.textContent = 'Reset';
+    actionBtn.className = 'btn btn-reset';
+  } else {
+    actionBtn.textContent = 'Inizia sessione';
+    actionBtn.className = 'btn btn-primary';
+  }
+}
+
+function updateSessionMeta() {
+  if (!state.sessionStarted) {
+    sessionMetaEl.textContent = 'Nessuna sessione in corso';
+  } else if (state.sessionEnded) {
+    sessionMetaEl.textContent = `Sessione conclusa · ${fmtDateTime(state.sessionStart)} → ${fmtDateTime(state.sessionEnd)}`;
+  } else {
+    sessionMetaEl.textContent = `Sessione iniziata alle ${fmtDateTime(state.sessionStart)}`;
+  }
+}
+
+const STORAGE_KEY = 'poppate-cuccioli-state';
+
+function saveState() {
+  try {
+    const toSave = {
+      sessionStarted: state.sessionStarted,
+      sessionEnded: state.sessionEnded,
+      sessionStart: state.sessionStart ? state.sessionStart.toISOString() : null,
+      sessionEnd: state.sessionEnd ? state.sessionEnd.toISOString() : null,
+      puppies: state.puppies,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  } catch (e) {}
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    state.sessionStarted = saved.sessionStarted;
+    state.sessionEnded = saved.sessionEnded;
+    state.sessionStart = saved.sessionStart ? new Date(saved.sessionStart) : null;
+    state.sessionEnd = saved.sessionEnd ? new Date(saved.sessionEnd) : null;
+    state.puppies = saved.puppies || state.puppies;
+    finishBtn.style.display = (state.sessionStarted && !state.sessionEnded) ? 'block' : 'none';
+  } catch (e) {}
+}
+
+let resetPending = false;
+let resetTimeout = null;
+
+actionBtn.addEventListener('click', () => {
+  if (!state.sessionStarted) {
+    state.sessionStarted = true;
+    state.sessionEnded = false;
+    state.sessionStart = new Date();
+    state.sessionEnd = null;
+    PUPPIES.forEach(({ name }) => {
+      state.puppies[name] = { totalMs: 0, running: true, resumedAt: Date.now() };
+    });
+    finishBtn.style.display = 'block';
+    renderPuppyList();
+    updateSessionMeta();
+    updateActionButton();
+    summaryTextEl.value = buildMarkdown();
+    saveState();
+    return;
+  }
+
+  if (!resetPending) {
+    resetPending = true;
+    actionBtn.textContent = 'Tocca di nuovo per confermare';
+    actionBtn.className = 'btn btn-reset-confirm';
+    resetTimeout = setTimeout(() => {
+      resetPending = false;
+      updateActionButton();
+    }, 4000);
+    return;
+  }
+
+  clearTimeout(resetTimeout);
+  resetPending = false;
+  state.sessionStarted = false;
+  state.sessionEnded = false;
+  state.sessionStart = null;
+  state.sessionEnd = null;
+  PUPPIES.forEach(({ name }) => {
+    state.puppies[name] = { totalMs: 0, running: false, resumedAt: null };
+  });
+  finishBtn.style.display = 'none';
+  renderPuppyList();
+  updateSessionMeta();
+  updateActionButton();
+  summaryTextEl.value = buildMarkdown();
+  localStorage.removeItem(STORAGE_KEY);
+});
+
+finishBtn.addEventListener('click', () => {
+  PUPPIES.forEach(({ name }) => {
+    const p = state.puppies[name];
+    if (p.running) {
+      p.totalMs += Date.now() - p.resumedAt;
+      p.running = false;
+      p.resumedAt = null;
+    }
+  });
+  state.sessionEnded = true;
+  state.sessionEnd = new Date();
+  renderPuppyList();
+  updateSessionMeta();
+  finishBtn.style.display = 'none';
+
+  summaryTextEl.value = buildMarkdown();
+  copyBtn.classList.remove('copied');
+  copyBtn.textContent = 'Copia markdown';
+  saveState();
+  setTimeout(() => {
+    copyBtn.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, 50);
+});
+
+copyBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(summaryTextEl.value);
+  } catch (e) {
+    summaryTextEl.select();
+    document.execCommand('copy');
+  }
+  copyBtn.textContent = 'Copiato ✓';
+  copyBtn.classList.add('copied');
+  setTimeout(() => {
+    copyBtn.textContent = 'Copia markdown';
+    copyBtn.classList.remove('copied');
+  }, 1500);
+});
+
+loadState();
+renderPuppyList();
+updateSessionMeta();
+updateActionButton();
+summaryTextEl.value = buildMarkdown();
+
+setInterval(() => {
+  updateTimes();
+}, 500);
+</script>
+</body>
+</html>
